@@ -1,1 +1,628 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor ESP32</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --panel: #0f1628;
+    --border: #1e2d4a;
+    --accent: #00d4ff;
+    --green: #00ff88;
+    --red: #ff3d5a;
+    --yellow: #ffd700;
+    --orange: #ff6b35;
+    --text: #c8d8f0;
+    --dim: #4a6080;
+  }
 
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Exo 2', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 16px;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 42px; height: 42px;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    box-shadow: 0 0 16px rgba(0,212,255,0.3);
+    animation: pulse-border 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 16px rgba(0,212,255,0.3); }
+    50% { box-shadow: 0 0 28px rgba(0,212,255,0.6); }
+  }
+
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+
+  h1 span { color: var(--accent); }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--dim);
+  }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: all 0.3s;
+  }
+
+  .dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2s infinite; }
+  .dot.offline { background: var(--red); }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Phase banner */
+  .phase-banner {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--dim);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.9rem;
+    transition: all 0.4s;
+  }
+
+  .phase-banner.extracting { border-left-color: var(--orange); background: rgba(255,107,53,0.07); }
+  .phase-banner.injecting  { border-left-color: var(--green);  background: rgba(0,255,136,0.07); }
+  .phase-banner.idle       { border-left-color: var(--accent); background: rgba(0,212,255,0.04); }
+
+  .phase-icon { font-size: 1.4rem; }
+  .phase-text { flex: 1; }
+  .phase-label { font-weight: 700; font-size: 0.95rem; color: #fff; }
+  .phase-sub { font-size: 0.78rem; color: var(--dim); margin-top: 2px; }
+
+  /* Sensor cards */
+  .sensors-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  @media (max-width: 600px) {
+    .sensors-grid { grid-template-columns: 1fr; }
+  }
+
+  .sensor-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+
+  .sensor-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent);
+    transition: background 0.3s;
+  }
+
+  .sensor-card.warning::before { background: var(--orange); }
+  .sensor-card.danger::before  { background: var(--red); }
+  .sensor-card.good::before    { background: var(--green); }
+
+  .sensor-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--dim);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sensor-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 2.4rem;
+    font-weight: 400;
+    color: #fff;
+    line-height: 1;
+    transition: color 0.3s;
+  }
+
+  .sensor-card.warning .sensor-value { color: var(--orange); }
+  .sensor-card.danger .sensor-value  { color: var(--red); }
+  .sensor-card.good .sensor-value    { color: var(--green); }
+
+  .sensor-unit {
+    font-size: 0.9rem;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+
+  .sensor-threshold {
+    font-size: 0.7rem;
+    color: var(--dim);
+    margin-top: 8px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  /* Relay section */
+  .relays-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+
+  .section-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--dim);
+    margin-bottom: 16px;
+  }
+
+  .relays-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  @media (max-width: 500px) {
+    .relays-grid { grid-template-columns: 1fr; }
+  }
+
+  .relay-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    transition: all 0.3s;
+  }
+
+  .relay-card.on {
+    border-color: var(--green);
+    background: rgba(0,255,136,0.05);
+  }
+
+  .relay-info { flex: 1; }
+  .relay-name { font-weight: 700; font-size: 0.95rem; color: #fff; }
+  .relay-desc { font-size: 0.75rem; color: var(--dim); margin-top: 2px; }
+
+  .relay-status {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: rgba(74,96,128,0.3);
+    color: var(--dim);
+    transition: all 0.3s;
+  }
+
+  .relay-card.on .relay-status {
+    background: rgba(0,255,136,0.15);
+    color: var(--green);
+  }
+
+  /* Toggle button */
+  .toggle-btn {
+    width: 52px; height: 28px;
+    border-radius: 14px;
+    border: 2px solid var(--border);
+    background: var(--bg);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.3s;
+    flex-shrink: 0;
+  }
+
+  .toggle-btn::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: all 0.3s;
+  }
+
+  .toggle-btn.on {
+    border-color: var(--green);
+    background: rgba(0,255,136,0.1);
+  }
+
+  .toggle-btn.on::after {
+    left: 27px;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  /* History chart */
+  .history-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+
+  .chart-wrap {
+    position: relative;
+    height: 140px;
+    margin-top: 12px;
+  }
+
+  canvas { width: 100% !important; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--dim);
+    font-family: 'Share Tech Mono', monospace;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.85rem;
+  }
+
+  .spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .timestamp {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--dim);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🌡️</div>
+      <div>
+        <h1>Monitor <span>ESP32</span></h1>
+        <div class="timestamp" id="lastUpdate">Esperando datos...</div>
+      </div>
+    </div>
+    <div class="status-badge">
+      <div class="dot" id="connDot"></div>
+      <span id="connText">Conectando...</span>
+    </div>
+  </header>
+
+  <!-- Phase banner -->
+  <div class="phase-banner idle" id="phaseBanner">
+    <div class="phase-icon" id="phaseIcon">✅</div>
+    <div class="phase-text">
+      <div class="phase-label" id="phaseLabel">Sistema en reposo</div>
+      <div class="phase-sub" id="phaseSub">Monitoreando sensores cada 5 segundos</div>
+    </div>
+  </div>
+
+  <!-- Sensor cards -->
+  <div class="sensors-grid">
+    <div class="sensor-card" id="cardTemp">
+      <div class="sensor-label">🌡️ Temperatura</div>
+      <div class="sensor-value" id="valTemp">--</div>
+      <div class="sensor-unit">grados Celsius</div>
+      <div class="sensor-threshold">Extrae ≥30°C · Para ≤27°C</div>
+    </div>
+    <div class="sensor-card" id="cardHum">
+      <div class="sensor-label">💧 Humedad</div>
+      <div class="sensor-value" id="valHum">--</div>
+      <div class="sensor-unit">porcentaje</div>
+      <div class="sensor-threshold">Referencia</div>
+    </div>
+    <div class="sensor-card" id="cardAir">
+      <div class="sensor-label">🌫️ Calidad Aire</div>
+      <div class="sensor-value" id="valAir">--</div>
+      <div class="sensor-unit">PPM</div>
+      <div class="sensor-threshold">Extrae ≥700 · Para ≤550</div>
+    </div>
+  </div>
+
+  <!-- Relays -->
+  <div class="relays-section">
+    <div class="section-title">⚡ Control de Extractores</div>
+    <div class="relays-grid">
+
+      <div class="relay-card" id="cardR2">
+        <div class="relay-info">
+          <div class="relay-name">Extractor 2</div>
+          <div class="relay-desc">💨 Saca el aire</div>
+          <div class="relay-status" id="statusR2">APAGADO</div>
+        </div>
+        <button class="toggle-btn" id="btnR2" onclick="toggleRelay(2)"></button>
+      </div>
+
+      <div class="relay-card" id="cardR1">
+        <div class="relay-info">
+          <div class="relay-name">Extractor 1</div>
+          <div class="relay-desc">🌀 Mete aire fresco</div>
+          <div class="relay-status" id="statusR1">APAGADO</div>
+        </div>
+        <button class="toggle-btn" id="btnR1" onclick="toggleRelay(1)"></button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- History chart -->
+  <div class="history-section">
+    <div class="section-title">📈 Historial — Temperatura y Aire</div>
+    <div class="chart-wrap">
+      <canvas id="chartCanvas"></canvas>
+    </div>
+  </div>
+
+  <div class="footer">
+    ESP32 · DHT22 · MQ135 · Relé 2 canales · API Render
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+  const API = '';  // mismo origen
+  let chart = null;
+  let relayStates = { relay1: false, relay2: false };
+
+  // ── Chart ─────────────────────────────────────────────────────────────────
+  function initChart() {
+    const ctx = document.getElementById('chartCanvas').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Temp °C',
+            data: [],
+            borderColor: '#ff6b35',
+            backgroundColor: 'rgba(255,107,53,0.08)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            yAxisID: 'yTemp',
+          },
+          {
+            label: 'Aire ppm',
+            data: [],
+            borderColor: '#00d4ff',
+            backgroundColor: 'rgba(0,212,255,0.06)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.4,
+            yAxisID: 'yAir',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { labels: { color: '#4a6080', font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#4a6080', maxTicksLimit: 6, font: { size: 10 } }, grid: { color: 'rgba(30,45,74,0.8)' } },
+          yTemp: { position: 'left',  ticks: { color: '#ff6b35', font: { size: 10 } }, grid: { color: 'rgba(30,45,74,0.5)' } },
+          yAir:  { position: 'right', ticks: { color: '#00d4ff', font: { size: 10 } }, grid: { display: false } },
+        }
+      }
+    });
+  }
+
+  function updateChart(history) {
+    if (!chart || !history.length) return;
+    const last = history.slice(-40);
+    chart.data.labels = last.map(d => {
+      const t = new Date(d.timestamp);
+      return `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+    });
+    chart.data.datasets[0].data = last.map(d => d.temperature);
+    chart.data.datasets[1].data = last.map(d => d.airQuality);
+    chart.update('none');
+  }
+
+  // ── Sensor cards ──────────────────────────────────────────────────────────
+  function updateSensors(data) {
+    if (!data.temperature) return;
+
+    document.getElementById('valTemp').textContent = data.temperature.toFixed(1);
+    document.getElementById('valHum').textContent  = data.humidity.toFixed(1);
+    document.getElementById('valAir').textContent  = Math.round(data.airQuality);
+
+    // Temp color
+    const cT = document.getElementById('cardTemp');
+    cT.className = 'sensor-card ' + (data.temperature >= 30 ? 'danger' : data.temperature >= 27 ? 'warning' : 'good');
+
+    // Hum color
+    const cH = document.getElementById('cardHum');
+    cH.className = 'sensor-card ' + (data.humidity >= 80 ? 'warning' : 'good');
+
+    // Air color
+    const cA = document.getElementById('cardAir');
+    cA.className = 'sensor-card ' + (data.airQuality >= 700 ? 'danger' : data.airQuality >= 550 ? 'warning' : 'good');
+
+    // Timestamp
+    document.getElementById('lastUpdate').textContent = 'Última lectura: ' + new Date(data.timestamp).toLocaleTimeString('es-CO');
+  }
+
+  // ── Phase banner ──────────────────────────────────────────────────────────
+  function updatePhase(phase) {
+    const banner = document.getElementById('phaseBanner');
+    const icon   = document.getElementById('phaseIcon');
+    const label  = document.getElementById('phaseLabel');
+    const sub    = document.getElementById('phaseSub');
+
+    banner.className = 'phase-banner';
+
+    if (phase === 'extracting') {
+      banner.classList.add('extracting');
+      icon.textContent  = '💨';
+      label.textContent = 'Extractor 2 activo — Sacando aire';
+      sub.textContent   = 'Se detendrá cuando temp ≤27°C o aire ≤550ppm';
+    } else if (phase === 'injecting') {
+      banner.classList.add('injecting');
+      icon.textContent  = '🌀';
+      label.textContent = 'Extractor 1 activo — Metiendo aire fresco';
+      sub.textContent   = 'Se apagará automáticamente en 3 minutos';
+    } else {
+      banner.classList.add('idle');
+      icon.textContent  = '✅';
+      label.textContent = 'Sistema en reposo';
+      sub.textContent   = 'Monitoreando sensores cada 5 segundos';
+    }
+  }
+
+  // ── Relay UI ──────────────────────────────────────────────────────────────
+  function updateRelayUI(r1, r2) {
+    relayStates = { relay1: r1, relay2: r2 };
+
+    const setRelay = (id, on) => {
+      document.getElementById(`cardR${id}`).className = 'relay-card' + (on ? ' on' : '');
+      document.getElementById(`statusR${id}`).textContent = on ? 'ENCENDIDO' : 'APAGADO';
+      document.getElementById(`btnR${id}`).className = 'toggle-btn' + (on ? ' on' : '');
+    };
+
+    setRelay(1, r1);
+    setRelay(2, r2);
+  }
+
+  async function toggleRelay(id) {
+    const current = id === 1 ? relayStates.relay1 : relayStates.relay2;
+    try {
+      const res = await fetch(`${API}/api/relays/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: !current })
+      });
+      const data = await res.json();
+      if (id === 1) relayStates.relay1 = data.state;
+      else relayStates.relay2 = data.state;
+      updateRelayUI(relayStates.relay1, relayStates.relay2);
+    } catch(e) {
+      console.error('Error toggling relay:', e);
+    }
+  }
+
+  // ── Connection status ─────────────────────────────────────────────────────
+  function setOnline(ok) {
+    document.getElementById('connDot').className = 'dot ' + (ok ? 'online' : 'offline');
+    document.getElementById('connText').textContent = ok ? 'En línea' : 'Sin conexión';
+  }
+
+  // ── Main fetch loop ───────────────────────────────────────────────────────
+  async function fetchAll() {
+    try {
+      const [statusRes, histRes] = await Promise.all([
+        fetch(`${API}/api/status`),
+        fetch(`${API}/api/sensors/history`)
+      ]);
+
+      const status  = await statusRes.json();
+      const history = await histRes.json();
+
+      setOnline(true);
+      updateSensors(status.sensors);
+      updateRelayUI(status.relays.relay1, status.relays.relay2);
+      updatePhase(status.sequence.phase);
+      updateChart(history);
+    } catch(e) {
+      setOnline(false);
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  initChart();
+  fetchAll();
+  setInterval(fetchAll, 5000);
+</script>
+</body>
+</html>
